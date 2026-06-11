@@ -6,7 +6,7 @@
  * Brand: Dark green (#071510), Gold (#F59E0B), White (#FFFFFF)
  */
 
-const APP_URL = process.env.APP_URL || "http://localhost:5173";
+const APP_URL = process.env.APP_URL || "https://smartcity26.vercel.app";
 const FROM_NAME = "SmartCity Osun State Football League";
 
 // ─── Base Layout ─────────────────────────────────────────────────────────────
