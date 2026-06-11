@@ -9,7 +9,7 @@ import { v2 as cloudinary } from "cloudinary";
 import { Resend } from "resend";
 import {
   connectDB, dbTeam, dbPlayer, dbOfficial, dbMatch, dbClubRegistration,
-  dbClubPlayer, dbAnnouncement, dbDocument,
+  dbClubPlayer, dbAnnouncement, dbDocument, dbOtp,
   Team, Player, Official, Match, ClubPlayer, Announcement, Document
 } from "./server/db.js";
 import {
@@ -139,8 +139,7 @@ async function sendEmailToMany(recipients: string[], subject: string, html: stri
   }
 }
 
-// In-memory OTP store: email → { code, expires }
-const otpStore = new Map<string, { code: string; expires: Date }>();
+// In-memory OTP store removed — now backed by MongoDB via dbOtp
 
 function generateOtp(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -1438,7 +1437,7 @@ app.post("/api/club-auth/forgot-password", async (req: express.Request, res: exp
     if (club) {
       const code = generateOtp();
       const expires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
-      otpStore.set(email.trim().toLowerCase(), { code, expires });
+      await dbOtp.set(email.trim(), code, expires);
 
       sendEmail(
         email.trim(),
@@ -1454,29 +1453,32 @@ app.post("/api/club-auth/forgot-password", async (req: express.Request, res: exp
 });
 
 // POST /api/club-auth/verify-reset-code  (public)
-app.post("/api/club-auth/verify-reset-code", (req: express.Request, res: express.Response) => {
+app.post("/api/club-auth/verify-reset-code", async (req: express.Request, res: express.Response) => {
   const { email, code } = req.body;
   if (!email || !code) {
     res.status(400).json({ message: "Email and code are required." });
     return;
   }
 
-  const stored = otpStore.get(email.trim().toLowerCase());
-  if (!stored) {
-    res.status(400).json({ message: "No reset code found. Please request a new one." });
-    return;
+  try {
+    const stored = await dbOtp.get(email.trim());
+    if (!stored) {
+      res.status(400).json({ message: "No reset code found. Please request a new one." });
+      return;
+    }
+    if (new Date() > stored.expires) {
+      await dbOtp.delete(email.trim());
+      res.status(400).json({ message: "This code has expired. Please request a new one." });
+      return;
+    }
+    if (stored.code !== code.trim()) {
+      res.status(400).json({ message: "Incorrect code. Please try again." });
+      return;
+    }
+    res.json({ valid: true, message: "Code verified. You may now reset your password." });
+  } catch (err: any) {
+    res.status(500).json({ message: "Error verifying code.", error: err.message });
   }
-  if (new Date() > stored.expires) {
-    otpStore.delete(email.trim().toLowerCase());
-    res.status(400).json({ message: "This code has expired. Please request a new one." });
-    return;
-  }
-  if (stored.code !== code.trim()) {
-    res.status(400).json({ message: "Incorrect code. Please try again." });
-    return;
-  }
-
-  res.json({ valid: true, message: "Code verified. You may now reset your password." });
 });
 
 // POST /api/club-auth/reset-password  (public)
@@ -1491,13 +1493,13 @@ app.post("/api/club-auth/reset-password", async (req: express.Request, res: expr
     return;
   }
 
-  const stored = otpStore.get(email.trim().toLowerCase());
-  if (!stored || stored.code !== code.trim() || new Date() > stored.expires) {
-    res.status(400).json({ message: "Invalid or expired reset code. Please restart the process." });
-    return;
-  }
-
   try {
+    const stored = await dbOtp.get(email.trim());
+    if (!stored || stored.code !== code.trim() || new Date() > stored.expires) {
+      res.status(400).json({ message: "Invalid or expired reset code. Please restart the process." });
+      return;
+    }
+
     const club = await dbClubRegistration.findOne({
       email: { $regex: new RegExp("^" + email.trim() + "$", "i") },
       status: "Approved"
@@ -1509,7 +1511,7 @@ app.post("/api/club-auth/reset-password", async (req: express.Request, res: expr
 
     const passwordHash = await bcrypt.hash(newPassword, 10);
     await dbClubRegistration.updateById(club._id.toString(), { passwordHash });
-    otpStore.delete(email.trim().toLowerCase()); // Clear the used code
+    await dbOtp.delete(email.trim()); // Clear the used code
 
     res.json({ message: "Password reset successfully! You can now log in with your new password." });
   } catch (err: any) {

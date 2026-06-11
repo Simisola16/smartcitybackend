@@ -147,6 +147,13 @@ export interface Announcement {
   createdAt: string;
 }
 
+export interface OtpEntry {
+  _id: string;
+  email: string;
+  code: string;
+  expires: Date;
+}
+
 export interface Document {
   _id: string;
   title: string;
@@ -293,6 +300,13 @@ const ClubPlayerSchema = new mongoose.Schema<ClubPlayer>({
   submittedAt: { type: String, default: () => new Date().toISOString() },
 });
 
+const OtpSchema = new mongoose.Schema<OtpEntry>({
+  email: { type: String, required: true, unique: true },
+  code: { type: String, required: true },
+  expires: { type: Date, required: true },
+});
+OtpSchema.index({ expires: 1 }, { expireAfterSeconds: 0 }); // auto-delete expired docs
+
 const AnnouncementSchema = new mongoose.Schema<Announcement>({
   title: { type: String, required: true },
   category: { type: String, enum: ["General", "Urgent", "Fixtures", "League Updates", "Registration"], required: true },
@@ -326,6 +340,7 @@ const ClubRegistrationModel = mongoose.models.ClubRegistration || mongoose.model
 const ClubPlayerModel = mongoose.models.ClubPlayer || mongoose.model("ClubPlayer", ClubPlayerSchema);
 const AnnouncementModel = mongoose.models.Announcement || mongoose.model("Announcement", AnnouncementSchema);
 const DocumentModel = mongoose.models.Document || mongoose.model("Document", DocumentSchema);
+const OtpModel = mongoose.models.Otp || mongoose.model("Otp", OtpSchema);
 
 export async function connectDB() {
   if (!MONGODB_URI) {
@@ -559,6 +574,26 @@ export const dbAnnouncement = {
   async deleteById(id: string): Promise<boolean> {
     const result = await (AnnouncementModel as any).findByIdAndDelete(id);
     return result !== null;
+  }
+};
+
+export const dbOtp = {
+  async set(email: string, code: string, expires: Date): Promise<void> {
+    await (OtpModel as any).findOneAndUpdate(
+      { email: email.toLowerCase() },
+      { email: email.toLowerCase(), code, expires },
+      { upsert: true, new: true }
+    );
+  },
+
+  async get(email: string): Promise<{ code: string; expires: Date } | null> {
+    const doc = await (OtpModel as any).findOne({ email: email.toLowerCase() }).lean();
+    if (!doc) return null;
+    return { code: (doc as any).code, expires: (doc as any).expires };
+  },
+
+  async delete(email: string): Promise<void> {
+    await (OtpModel as any).deleteOne({ email: email.toLowerCase() });
   }
 };
 
