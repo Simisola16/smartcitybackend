@@ -116,7 +116,7 @@ app.use(
 // Resend Email Service
 // -------------------------------------------------------------
 const resend = new Resend(process.env.RESEND_API_KEY);
-const FROM_EMAIL = "SmartCity Osun State Football League <onboarding@resend.dev>";
+const FROM_EMAIL = process.env.FROM_EMAIL || "SmartCity Osun State Football League <onboarding@resend.dev>";
 
 /** Fire-and-forget email sender — never throws, never blocks the main action */
 async function sendEmail(to: string, subject: string, html: string): Promise<void> {
