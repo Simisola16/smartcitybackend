@@ -24,7 +24,7 @@ import {
 } from "./server/emailTemplates.js";
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "SMARTCITY_SUPER_SECRET_KEY";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin@123";
 const REFEREE_PASSWORD = process.env.REFEREE_PASSWORD || "referee@123";
@@ -2082,9 +2082,15 @@ app.get("/api/club-auth/documents", verifyClubToken, async (req: AuthenticatedRe
   }
 });
 
-if (process.env.NODE_ENV !== "production") {
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`⚽ SmartCity Under 17 Portal listening on: http://localhost:${PORT}`);
+// Root endpoint for health check / Render ping
+app.get("/", (req, res) => {
+  res.json({ status: "ok", message: "SmartCity API is active and running." });
+});
+
+// Start server if not running as a Vercel serverless function
+if (!process.env.VERCEL) {
+  app.listen(Number(PORT), "0.0.0.0", () => {
+    console.log(`⚽ SmartCity Under 17 Portal listening on: http://0.0.0.0:${PORT}`);
   });
 }
 
